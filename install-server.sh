@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # ==== Einstellungen ====
-PASSWORD="dein-sicheres-passwort"
-DOMAIN="deine-subdomain.duckdns.org"
+PASSWORD="StarBot-Java-Oliin99"
+DOMAIN="starbot-java.duckdns.org"
 
 # ==== Code-Server installieren ====
 echo "==> Code-Server wird installiert..."
