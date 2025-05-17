@@ -1,65 +1,67 @@
 #!/bin/bash
 
-# ==== Einstellungen ====
-PASSWORD="StarBot-Java-Oliin99"
-DOMAIN="starbot-java.duckdns.org"
+# Domain und Token per Parameter oder Eingabe
+DOMAIN=$1
+TOKEN=$2
 
-# ==== Code-Server installieren ====
-echo "==> Code-Server wird installiert..."
-curl -fsSL https://code-server.dev/install.sh | sh
+if [ -z "$DOMAIN" ]; then
+  read -p "Gib deine DuckDNS-Domain ein (ohne .duckdns.org): " DOMAIN
+fi
 
-echo "==> Code-Server systemd-Service einrichten..."
-sudo tee /lib/systemd/system/code-server.service > /dev/null <<EOL
-[Unit]
-Description=Code Server
-After=network.target
+if [ -z "$TOKEN" ]; then
+  read -p "Gib deinen DuckDNS-Token ein: " TOKEN
+fi
 
-[Service]
-Type=simple
-Environment=PASSWORD=$PASSWORD
-ExecStart=/usr/bin/code-server --bind-addr 0.0.0.0:8080 --disable-telemetry --user-data-dir /home/pi/.local/share/code-server
-User=pi
-Restart=always
+echo "Starte Server-Setup für Domain: $DOMAIN"
 
-[Install]
-WantedBy=multi-user.target
-EOL
+# Code-Server installieren (falls nicht vorhanden)
+if ! command -v code-server &> /dev/null
+then
+    echo "Code-Server wird installiert..."
+    curl -fsSL https://code-server.dev/install.sh | sh
+else
+    echo "Code-Server ist bereits installiert."
+fi
 
-sudo systemctl daemon-reload
-sudo systemctl enable code-server
-sudo systemctl restart code-server
+# Caddy installieren (falls nicht vorhanden)
+if ! command -v caddy &> /dev/null
+then
+    echo "Caddy wird installiert..."
+    sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
+    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-archive-keyring.gpg
+    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+    sudo apt update
+    sudo apt install -y caddy
+else
+    echo "Caddy ist bereits installiert."
+fi
 
-# ==== Caddy installieren ====
-echo "==> Caddy wird installiert..."
-sudo apt update
-sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
-
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-
-echo "deb [signed-by=/usr/share/keyrings/caddy-stable-archive-keyring.gpg] \
-https://dl.cloudsmith.io/public/caddy/stable/deb/debian all main" | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-
-sudo apt update
-sudo apt install -y caddy
-
-# ==== Caddyfile erstellen ====
-echo "==> Caddyfile wird eingerichtet..."
-sudo tee /etc/caddy/Caddyfile > /dev/null <<EOL
-$DOMAIN {
+# Caddyfile anlegen
+echo "Erstelle Caddyfile..."
+sudo bash -c "cat > /etc/caddy/Caddyfile" <<EOF
+$DOMAIN.duckdns.org:8443 {
     reverse_proxy 127.0.0.1:8080
+    tls {
+      dns duckdns
+    }
 }
-EOL
+EOF
 
-sudo systemctl daemon-reload
-sudo systemctl enable caddy
+# Caddy neu starten
+echo "Starte Caddy neu..."
 sudo systemctl restart caddy
 
-# ==== Fertig ====
-echo ""
-echo "===================================="
-echo "🚀 Installation abgeschlossen!"
-echo ""
-echo "👉 Code-Server erreichbar unter: https://$DOMAIN"
-echo "Benutzername: coder"
-echo "Passwort: $PASSWORD"
-echo "===================================="
+# DuckDNS-Update-Script anlegen
+echo "Erstelle DuckDNS-Update-Script..."
+mkdir -p ~/duckdns
+cat > ~/duckdns/duck.sh <<EOF
+echo url="https://www.duckdns.org/update?domains=$DOMAIN&token=$TOKEN&ip=" | curl -k -o ~/duckdns/duck.log -K -
+EOF
+chmod 700 ~/duckdns/duck.sh
+
+# Cronjob für DuckDNS
+(crontab -l 2>/dev/null; echo "*/5 * * * * ~/duckdns/duck.sh >/dev/null 2>&1") | crontab -
+
+echo "Installation abgeschlossen!"
+echo "➡ Code-Server: http://DEINE-IP:8080"
+echo "➡ oder via https://$DOMAIN.duckdns.org:8443"
